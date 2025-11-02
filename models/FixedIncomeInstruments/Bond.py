@@ -2,12 +2,14 @@ from datetime import datetime as dt
 from models.FixedIncomeInstruments.AccruedInterestConvention import MarketStandard
 
 class Bond(object):
-    def __init__(self, principal, maturity_date, issue_date, interest_rate):
+    def __init__(self, principal, maturity_date, issue_date, interest_rate, put_option_date=None, call_option_date=None):
         self.principal = principal
         self.maturity_date = dt.strptime(maturity_date, "%Y-%m-%d")      
         self.issue_date = dt.strptime(issue_date, "%Y-%m-%d")    
         self.interest_rate = interest_rate
         self.acc_interest_convention = MarketStandard()
+        self.put_option_date = put_option_date
+        self.call_option_date = call_option_date
     
     def rate(self):
         raise NotImplemented
@@ -37,37 +39,19 @@ class Bond(object):
     def payment_schedule(self):
         return [self.maturity_date] 
     
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    def current_yield(self):
+        raise NotImplemented
     
-    # def PresentValueOfFutureValueSeries(self, future_value_expected, coupon, periods):
-    #     series = []
-    #     for t in range(1, periods):
-    #         value = coupon / pow( 1 + self.Rate(), t)
-    #         series.append((t,value))
+    def yield_to_maturity(self):
+        raise NotImplemented
+    
+    def yield_to_call(self):
+        if (not self.call_option_date):
+            raise Exception("There is no CALL option right set up")
+    
+    def yield_to_put(self):
+        if (not self.put_option_date):
+            raise Exception("There is no PUT option right set up")
         
-
-    #     series.append((periods, (coupon + future_value_expected) / pow( 1 + self.Rate(), periods) ))
-    #     return series
-    
-    # def PresentValueOfFutureValues(self, future_value_expected, coupon, periods):
-    #     series = self.PresentValueOfFutureValueSeries(future_value_expected, coupon, periods)
-
-    #     return sum(v for _, v in series)
-    
-    # def PresentValueOfAnnuity(self, annuity, periods):
-    #     return annuity * ( (1 - 1/ pow(1 + self.Rate(), periods)) / self.Rate() )
+    def TIR(self):
+        raise NotImplemented

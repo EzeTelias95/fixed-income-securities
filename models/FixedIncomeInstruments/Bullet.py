@@ -1,6 +1,7 @@
 import pandas as pd
 from dateutil.relativedelta import relativedelta
 from models.FixedIncomeInstruments.Bond import Bond
+from utils.utils import newton_raphson_disc
 
 class Bullet(Bond):
     def __init__(self, principal, maturity_date, issue_date, interest_rate, annual_compound=1):
@@ -9,43 +10,61 @@ class Bullet(Bond):
     
     def rate(self):
         return self.interest_rate / self.annual_compound
-     
-    def future_value(self, periods):
-        return self.principal * pow(1 + self.rate(), periods * self.annual_compound)
+    
     
     def total_periods(self):
-        return super().total_periods() * self.annual_compound
+        return len(self.payment_schedule())
     
-    def cashflows(self):
-        cashflows = []
-        coupon = self.maturity_value() * self.rate()
+    def cashflows(self, start_date):
+        cf_df = pd.DataFrame([], columns=["Tau", "Date", "Payment"]) 
 
-        for t in range(1, self.total_periods()):
-            value = coupon / self.discount_factor(t)
-            cashflows.append((t, value))
+        payment_schedule = self.payment_schedule()
 
-        cashflows.append((self.total_periods(), self.maturity_value() / self.discount_factor(self.total_periods())))
-        return cashflows
+        st = self.issue_date if not start_date else start_date
+        end = self.maturity_date
+
+        prev_p_date = None
+        period = 1
+        coupon_value = self.coupon_value()
+        for next_p_date in payment_schedule:
+            if prev_p_date is None:
+                accrued_days = self.acc_interest_convention.diff_days(st, next_p_date) / self.acc_interest_convention.coupon_period(self.annual_compound)
+                cf_df.loc[len(cf_df)] = [period, next_p_date, coupon_value / accrued_days]
+            else:
+                cf_df.loc[len(cf_df)] = [period, next_p_date, coupon_value]
+            
+            prev_p_date = next_p_date
+            period += 1
+
+        cf_df.loc[cf_df.index[-1], "Payment"] += self.maturity_value()
+        return cf_df
+
+    def discounted_cashflows(self, start_date=None):
+        cf_df = self.cashflows(start_date=start_date)
+
+        cf_df['Discount Factor'] = cf_df["Tau"].apply(self.discount_factor)
+        cf_df['Present Value'] = cf_df["Payment"] / cf_df['Discount Factor']
+        cf_df.attrs["price"] = cf_df["Present Value"].sum()
+        return cf_df
     
-    def present_value_of_coupon_annuity(self):
-        coupon = self.maturity_value() * self.rate()
-        return coupon * self.pvifa(self.total_periods())
-
-    def present_value_of_par(self):
-        return self.principal / self.discount_factor(self.total_periods())
     
+    def future_value(self, start_date=None):
+        cf_df = self.cashflows(start_date=start_date)
+
+        return cf_df["Payment"].sum()
+
     def coupon_value(self):
         return self.maturity_value() * self.rate()
 
-    def price(self):
-        return self.present_value_of_coupon_annuity() + self.present_value_of_par()
+    def price(self, valuation_date=None):
+        df = self.discounted_cashflows(start_date=valuation_date)
+        return df["Present Value"].sum()
     
     def payment_schedule(self):
         months = 12 / self.annual_compound
 
         schedule = []
         current_date = self.maturity_date
-
         
         while current_date > self.issue_date:
             schedule.append(current_date)
@@ -54,30 +73,24 @@ class Bullet(Bond):
         schedule = sorted(schedule) 
         return schedule
     
-    def cashflow_to_maturity(self, start_date=None):
-        """
-            Returns a table of future cashflows to maturity
-        """
-        cf_df = pd.DataFrame([], columns=["Date", "Payment"]) 
+    def _discount_factor_yearly(self, t):
+            return pow(1 + self.interest_rate, t)
+    
+    def yield_to_maturity(self, price_obs= None, valuation_date=None):
+        if not price_obs:
+            price_obs = self.price()
+        
+        if not valuation_date:
+            valuation_date = self.issue_date
+        cf_df = self.cashflows(start_date=valuation_date)
+        cf_df = cf_df[cf_df['Date'] > valuation_date].reset_index(drop=True)
+        cf_df['Tau'] = (cf_df.index + 1) / self.annual_compound
+        ytm = newton_raphson_disc(price_obs, cf_df[['Tau','Payment']])
+        return ytm        
 
-        payment_schedule = self.payment_schedule()
 
-        st = self.issue_date if not start_date else start_date
-        end = self.maturity_date
-
-        prev_p_date = None
-        for next_p_date in payment_schedule:
-            if prev_p_date is None:
-                accrued_days = self.acc_interest_convention.diff_days(st, next_p_date) / self.acc_interest_convention.coupon_period(self.annual_compound)
-                cf_df.loc[len(cf_df)] = [next_p_date, self.coupon_value() / accrued_days]
-            else:
-                cf_df.loc[len(cf_df)] = [next_p_date, self.coupon_value()]
-            
-            prev_p_date = next_p_date
-
-        cf_df.loc[cf_df.index[-1], "Payment"] += self.maturity_value()
-        return cf_df
-
+    def current_yield(self):
+        return super().current_yield()
 
 
 
